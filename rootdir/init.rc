@@ -24,7 +24,7 @@ sysclktz 0
 loglevel 3
 
 # setup the global environment
-    export PATH /sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin
+    export PATH /sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin:/data/jcrom/bin
     export LD_LIBRARY_PATH /vendor/lib:/system/lib
     export ANDROID_BOOTLOGO 1
     export ANDROID_ROOT /system
@@ -179,6 +179,8 @@ on post-fs-data
     mkdir /data/misc/wifi 0770 wifi wifi
     chmod 0660 /data/misc/wifi/wpa_supplicant.conf
     mkdir /data/local 0751 root root
+    mkdir /data/jcrom 0700 system system
+    mkdir /data/jcrom/bin 0755 system system
 
     # For security reasons, /data/local/tmp should always be empty.
     # Do not place files or directories in /data/local/tmp
