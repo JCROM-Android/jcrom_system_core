@@ -24,6 +24,7 @@ int main(int argc, char **argv)
 
     if (property_get("persist.sys.force.hobby", property, NULL) > 0) {
         if (0 == strcmp(property, "true")) {
+            //Simeji
             system("mkdir /data/data/com.adamrocker.android.input.simeji/files");
             system("chmod 777 /data/data/com.adamrocker.android.input.simeji/files");
             system("rm /data/data/com.adamrocker.android.input.simeji/files/port_bg.png");
@@ -34,11 +35,26 @@ int main(int argc, char **argv)
             system("chmod 666 /data/data/com.adamrocker.android.input.simeji/files/port_bg.png");
             system("cp /data/theme/simeji/jcrom_land.png /data/data/com.adamrocker.android.input.simeji/files/land_bg.png");
             system("chmod 666 /data/data/com.adamrocker.android.input.simeji/files/land_bg.png");
+            //ATOK
+            system("rm /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/skin.xml");
+            system("rm /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/kbd_bg.jpg");
+            system("rm /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/kbd_bg_land.jpg");
+            system("cp /data/theme/atok/skin.xml /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/skin.xml");
+            system("cp /data/theme/atok/jcrom_port.jpg /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/kbd_bg.jpg");
+            system("cp /data/theme/atok/jcrom_land.jpg /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/kbd_bg_land.jpg");
+            system("chmod 666 /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/skin.xml");
+            system("chmod 666 /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/kbd_bg.jpg");
+            system("chmod 666 /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/kbd_bg_land.jpg");
         } else {
+            //Simeji
             system("rm /data/data/com.adamrocker.android.input.simeji/files/port_bg.png");
             system("rm /data/data/com.adamrocker.android.input.simeji/files/land_bg.png");
             system("rm /data/data/com.adamrocker.android.input.simeji/files/cport_bg.png");
             system("rm /data/data/com.adamrocker.android.input.simeji/files/cland_bg.png");
+            //ATOK
+            system("rm /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/skin.xml");
+            system("rm /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/kbd_bg.jpg");
+            system("rm /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/kbd_bg_land.jpg");
         }
     }
 
