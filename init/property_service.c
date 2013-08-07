@@ -27,6 +27,7 @@
 
 #include <cutils/misc.h>
 #include <cutils/sockets.h>
+#include <cutils/multiuser.h>
 
 #define _REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_
 #include <sys/_system_properties.h>
@@ -40,10 +41,8 @@
 #include <sys/atomics.h>
 #include <private/android_filesystem_config.h>
 
-#ifdef HAVE_SELINUX
 #include <selinux/selinux.h>
 #include <selinux/label.h>
-#endif
 
 #include "property_service.h"
 #include "init.h"
@@ -125,7 +124,7 @@ static int init_workspace(workspace *w, size_t size)
         /* dev is a tmpfs that we can use to carve a shared workspace
          * out of, so let's do that...
          */
-    fd = open("/dev/__properties__", O_RDWR | O_CREAT, 0600);
+    fd = open(PROP_FILENAME, O_RDWR | O_CREAT | O_NOFOLLOW, 0644);
     if (fd < 0)
         return -1;
 
@@ -138,11 +137,9 @@ static int init_workspace(workspace *w, size_t size)
 
     close(fd);
 
-    fd = open("/dev/__properties__", O_RDONLY);
+    fd = open(PROP_FILENAME, O_RDONLY | O_NOFOLLOW);
     if (fd < 0)
         return -1;
-
-    unlink("/dev/__properties__");
 
     w->data = data;
     w->size = size;
@@ -154,12 +151,12 @@ out:
     return -1;
 }
 
-/* (8 header words + 247 toc words) = 1020 bytes */
-/* 1024 bytes header and toc + 247 prop_infos @ 128 bytes = 32640 bytes */
+/* (8 header words + 372 toc words) = 1520 bytes */
+/* 1536 bytes header and toc + 372 prop_infos @ 128 bytes = 49152 bytes */
 
-#define PA_COUNT_MAX  247
-#define PA_INFO_START 1024
-#define PA_SIZE       32768
+#define PA_COUNT_MAX  372
+#define PA_INFO_START 1536
+#define PA_SIZE       49152
 
 static workspace pa_workspace;
 static prop_info *pa_info_array;
@@ -201,7 +198,6 @@ static void update_prop_info(prop_info *pi, const char *value, unsigned len)
 
 static int check_mac_perms(const char *name, char *sctx)
 {
-#ifdef HAVE_SELINUX
     if (is_selinux_enabled() <= 0)
         return 1;
 
@@ -225,15 +221,10 @@ static int check_mac_perms(const char *name, char *sctx)
     freecon(tctx);
  err:
     return result;
-
-#endif
-    return 1;
 }
 
 static int check_control_mac_perms(const char *name, char *sctx)
 {
-#ifdef HAVE_SELINUX
-
     /*
      *  Create a name prefix out of ctl.<service name>
      *  The new prefix allows the use of the existing
@@ -247,9 +238,6 @@ static int check_control_mac_perms(const char *name, char *sctx)
         return 0;
 
     return check_mac_perms(ctl_name, sctx);
-
-#endif
-    return 1;
 }
 
 /*
@@ -283,11 +271,18 @@ static int check_control_perms(const char *name, unsigned int uid, unsigned int 
 static int check_perms(const char *name, unsigned int uid, unsigned int gid, char *sctx)
 {
     int i;
+    unsigned int app_id;
+
     if(!strncmp(name, "ro.", 3))
         name +=3;
 
     if (uid == 0)
         return check_mac_perms(name, sctx);
+
+    app_id = multiuser_get_app_id(uid);
+    if (app_id == AID_BLUETOOTH) {
+        uid = app_id;
+    }
 
     for (i = 0; property_perms[i].prefix; i++) {
         if (strncmp(property_perms[i].prefix, name,
@@ -320,13 +315,12 @@ const char* property_get(const char *name)
 
 static void write_persistent_property(const char *name, const char *value)
 {
-    const char *tempPath = PERSISTENT_PROPERTY_DIR "/.temp";
+    char tempPath[PATH_MAX];
     char path[PATH_MAX];
-    int fd, length;
+    int fd;
 
-    snprintf(path, sizeof(path), "%s/%s", PERSISTENT_PROPERTY_DIR, name);
-
-    fd = open(tempPath, O_WRONLY|O_CREAT|O_TRUNC, 0600);
+    snprintf(tempPath, sizeof(tempPath), "%s/.temp.XXXXXX", PERSISTENT_PROPERTY_DIR);
+    fd = mkstemp(tempPath);
     if (fd < 0) {
         ERROR("Unable to write persistent property to temp file %s errno: %d\n", tempPath, errno);
         return;
@@ -334,6 +328,7 @@ static void write_persistent_property(const char *name, const char *value)
     write(fd, value, strlen(value));
     close(fd);
 
+    snprintf(path, sizeof(path), "%s/%s", PERSISTENT_PROPERTY_DIR, name);
     if (rename(tempPath, path)) {
         unlink(tempPath);
         ERROR("Unable to rename persistent property file %s to %s\n", tempPath, path);
@@ -345,8 +340,8 @@ int property_set(const char *name, const char *value)
     prop_area *pa;
     prop_info *pi;
 
-    int namelen = strlen(name);
-    int valuelen = strlen(value);
+    size_t namelen = strlen(name);
+    size_t valuelen = strlen(value);
 
     if(namelen >= PROP_NAME_MAX) return -1;
     if(valuelen >= PROP_VALUE_MAX) return -1;
@@ -396,11 +391,9 @@ int property_set(const char *name, const char *value)
          * to prevent them from being overwritten by default values.
          */
         write_persistent_property(name, value);
-#ifdef HAVE_SELINUX
     } else if (strcmp("selinux.reload_policy", name) == 0 &&
                strcmp("1", value) == 0) {
         selinux_reload_policy();
-#endif
     }
     property_changed(name, value);
     return 0;
@@ -425,13 +418,13 @@ void handle_property_set_fd()
     /* Check socket options here */
     if (getsockopt(s, SOL_SOCKET, SO_PEERCRED, &cr, &cr_size) < 0) {
         close(s);
-        ERROR("Unable to recieve socket options\n");
+        ERROR("Unable to receive socket options\n");
         return;
     }
 
     r = TEMP_FAILURE_RETRY(recv(s, &msg, sizeof(msg), 0));
     if(r != sizeof(prop_msg)) {
-        ERROR("sys_prop: mis-match msg size recieved: %d expected: %d errno: %d\n",
+        ERROR("sys_prop: mis-match msg size received: %d expected: %d errno: %d\n",
               r, sizeof(prop_msg), errno);
         close(s);
         return;
@@ -442,9 +435,7 @@ void handle_property_set_fd()
         msg.name[PROP_NAME_MAX-1] = 0;
         msg.value[PROP_VALUE_MAX-1] = 0;
 
-#ifdef HAVE_SELINUX
         getpeercon(s, &source_ctx);
-#endif
 
         if(memcmp(msg.name,"ctl.",4) == 0) {
             // Keep the old close-socket-early behavior when handling
@@ -469,10 +460,7 @@ void handle_property_set_fd()
             // the property is written to memory.
             close(s);
         }
-#ifdef HAVE_SELINUX
         freecon(source_ctx);
-#endif
-
         break;
 
     default:
@@ -530,12 +518,14 @@ static void load_properties_from_file(const char *fn)
 static void load_persistent_properties()
 {
     DIR* dir = opendir(PERSISTENT_PROPERTY_DIR);
+    int dir_fd;
     struct dirent*  entry;
-    char path[PATH_MAX];
     char value[PROP_VALUE_MAX];
     int fd, length;
+    struct stat sb;
 
     if (dir) {
+        dir_fd = dirfd(dir);
         while ((entry = readdir(dir)) != NULL) {
             if (strncmp("persist.", entry->d_name, strlen("persist.")))
                 continue;
@@ -544,20 +534,39 @@ static void load_persistent_properties()
                 continue;
 #endif
             /* open the file and read the property value */
-            snprintf(path, sizeof(path), "%s/%s", PERSISTENT_PROPERTY_DIR, entry->d_name);
-            fd = open(path, O_RDONLY);
-            if (fd >= 0) {
-                length = read(fd, value, sizeof(value) - 1);
-                if (length >= 0) {
-                    value[length] = 0;
-                    property_set(entry->d_name, value);
-                } else {
-                    ERROR("Unable to read persistent property file %s errno: %d\n", path, errno);
-                }
-                close(fd);
-            } else {
-                ERROR("Unable to open persistent property file %s errno: %d\n", path, errno);
+            fd = openat(dir_fd, entry->d_name, O_RDONLY | O_NOFOLLOW);
+            if (fd < 0) {
+                ERROR("Unable to open persistent property file \"%s\" errno: %d\n",
+                      entry->d_name, errno);
+                continue;
             }
+            if (fstat(fd, &sb) < 0) {
+                ERROR("fstat on property file \"%s\" failed errno: %d\n", entry->d_name, errno);
+                close(fd);
+                continue;
+            }
+
+            // File must not be accessible to others, be owned by root/root, and
+            // not be a hard link to any other file.
+            if (((sb.st_mode & (S_IRWXG | S_IRWXO)) != 0)
+                    || (sb.st_uid != 0)
+                    || (sb.st_gid != 0)
+                    || (sb.st_nlink != 1)) {
+                ERROR("skipping insecure property file %s (uid=%lu gid=%lu nlink=%d mode=%o)\n",
+                      entry->d_name, sb.st_uid, sb.st_gid, sb.st_nlink, sb.st_mode);
+                close(fd);
+                continue;
+            }
+
+            length = read(fd, value, sizeof(value) - 1);
+            if (length >= 0) {
+                value[length] = 0;
+                property_set(entry->d_name, value);
+            } else {
+                ERROR("Unable to read persistent property file %s errno: %d\n",
+                      entry->d_name, errno);
+            }
+            close(fd);
         }
         closedir(dir);
     } else {
