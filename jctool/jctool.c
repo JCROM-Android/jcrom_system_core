@@ -57,6 +57,8 @@ int main(int argc, char **argv)
             system("rm /data/data/com.justsystems.atokmobile.tv.service/files/skins/カスタム1/kbd_bg_land.jpg");
         }
     }
+    property_set("persist.sys.force.lock", "none");
+    property_set("persist.sys.theme.lock", "false");
 
     return 0;
 }
